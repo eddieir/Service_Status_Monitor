@@ -58,3 +58,141 @@ def get_server_status(hostname, port, username, password):
         cpu_usage.append(float(cpu_usage_data))
         # print(cpu_usage)
     print("Cpu -usage: %0.2f %%" % max(cpu_usage))
+
+    # Get memory usage
+    cmd = "free -m"  # free + buff/cache
+    stdin, stdout, stderr = ssh.exec_command(cmd)
+    mem_usage = stdout.read()
+    # print(mem_usage)
+    mem_usage = mem_usage[mem_usage.find(
+        "Mem:") + 4:mem_usage.find("\n", mem_usage.find("Mem:") + 4)]
+    mem_usage = mem_usage.split()
+    mem_usage = map(int, mem_usage)
+    mem_usage_num = (mem_usage[0] - (mem_usage[2] +
+                                     mem_usage[4])) / float(mem_usage[0])
+    # print(mem_usage)
+    print("Mem -usage: %0.2f %%" % (mem_usage_num * 100))
+
+    # Get gpu usage
+    print("Gpu -usage:")
+    CMD1 = 'nvidia-smi| grep MiB | grep -v Default | cut -c 4-8'
+    CMD2 = 'nvidia-smi -L'
+    CMD3 = 'nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits'
+
+    stdin, stdout, stderr = ssh.exec_command(CMD2)
+    gpu_info = stdout.read()
+
+    if isinstance(gpu_info, bytes):
+        gpu_info = gpu_info.decode()
+    gpu_info.strip().split('\n')
+
+    total_gpu = len(gpu_info)
+
+    # first choose the free gpus
+    stdin, stdout, stderr = ssh.exec_command(CMD1)
+    gpu_usage = set(map(lambda x: int(x), stdout.read().split()))
+    print(gpu_usage)
+    free_gpus = set(range(total_gpu)) - gpu_usage
+
+    # then choose the most memory free gpus
+    stdin, stdout, stderr = ssh.exec_command(CMD3)
+    gpu_free_mem = list(map(lambda x: int(x), stdout.read().split()))
+    gpu_sorted = list(sorted(
+        range(total_gpu), key=lambda x: gpu_free_mem[x], reverse=True))[len(free_gpus):]
+
+    res = list(free_gpus) + list(gpu_sorted)
+
+    print(res)
+
+    result = stdout.read()
+
+    if not result:
+        result = stderr.read()
+    ssh.close()
+
+    print(result)
+
+
+def get_gpu_utils(hostname, port, username, password):
+
+    ssh = paramiko.SSHClient()
+
+    # Add the machine to be connected to the known_hosts file
+
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    # 连接服务器
+    ssh.connect(hostname=hostname, port=port,
+                username=username, password=password)
+
+    # 获取gpu信息
+    smi_cmd = 'nvidia-smi -q -x'  # get XML output
+    stdin, stdout, stderr = ssh.exec_command(smi_cmd)
+    smi_out = stdout.read()
+
+    # 获取gpu使用率
+    gpu_info_cmd = "nvidia-smi " \
+                   "--query-gpu=index,name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu " \
+                   "--format=csv,noheader"
+
+    stdin, stdout, stderr = ssh.exec_command(gpu_info_cmd)
+    out = stdout.read()
+
+    if isinstance(out, bytes):
+        out = out.decode()
+
+    gpu_infos = out.strip().split('\n')
+    gpu_infos = map(lambda x: x.split(', '), gpu_infos)
+    gpu_infos = [{'index': x[0],
+                  'name': x[1],
+                  'mem_total': x[2],
+                  'mem_used': x[3],
+                  'mem_free': x[4],
+                  'gpu_util': x[5],
+                  'gpu_temp': x[6],
+                  }
+                 for x in gpu_infos]
+
+    e = xml.etree.ElementTree.fromstring(smi_out)
+    status = {}
+
+    for id, gpu in enumerate(e.findall('gpu')):
+
+        gpu_stat = {}
+
+        index = int(gpu_infos[id]['index'])
+        utilization = gpu.find('utilization')
+        gpu_util = utilization.find('gpu_util').text
+        mem_free = gpu_infos[id]['mem_free'].split()[0]
+        mem_total = gpu_infos[id]['mem_total'].split()[0]
+        mem_used = gpu_infos[id]['mem_used'].split()[0]
+        gpu_temp = gpu_infos[id]['gpu_temp'].split()[0]
+
+        gpu_stat['gpu_util'] = float(gpu_util.split()[0]) / 100
+        gpu_stat['mem_free'] = int(mem_free)
+        gpu_stat['mem_total'] = int(mem_total)
+        gpu_stat['mem_used'] = int(mem_used)
+        gpu_stat['gpu_temp'] = int(gpu_temp)
+
+        gpu_procs = []
+        procs = gpu.find('processes')
+
+        for procinfo in procs.iter('process_info'):
+            pid = int(procinfo.find('pid').text)
+            mem = procinfo.find('used_memory').text
+            mem_num = int(mem.split()[0])
+            user, command = owner(ssh, pid)
+            tmp = {
+                'user': user,
+                'mem': mem_num,
+                'command': command
+            }
+            gpu_procs.append(tmp)
+
+        gpu_stat['proc'] = gpu_procs
+        status[index] = gpu_stat
+    ssh.close()
+    return gpu_infos, status
+
+
+def
