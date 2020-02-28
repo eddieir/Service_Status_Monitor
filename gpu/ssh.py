@@ -121,16 +121,16 @@ def get_gpu_utils(hostname, port, username, password):
 
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-    # 连接服务器
+    # Connect to server
     ssh.connect(hostname=hostname, port=port,
                 username=username, password=password)
 
-    # 获取gpu信息
+    # get gpu information
     smi_cmd = 'nvidia-smi -q -x'  # get XML output
     stdin, stdout, stderr = ssh.exec_command(smi_cmd)
     smi_out = stdout.read()
 
-    # 获取gpu使用率
+    # get gpu usage
     gpu_info_cmd = "nvidia-smi " \
                    "--query-gpu=index,name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu " \
                    "--format=csv,noheader"
