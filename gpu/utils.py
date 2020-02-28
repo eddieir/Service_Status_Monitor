@@ -1,4 +1,4 @@
-from ssh import get_gpu_utils
+from .ssh import get_gpu_utils
 
 
 def gpu_status(servers):
