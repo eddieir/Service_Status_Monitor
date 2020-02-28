@@ -195,4 +195,36 @@ def get_gpu_utils(hostname, port, username, password):
     return gpu_infos, status
 
 
-def
+def pretty_print(status, verbose=False):
+    out_message = ""
+    for id, stats in status.iteritems():
+        mem_free = stats['mem_free']
+        color_out = '\x1b[0m'
+        color_in = color_out
+        if mem_free > 10000:
+            color_in = '\x1b[0;32m'
+        elif mem_free > 5000:
+            color_in = '\x1b[0;36m'
+
+        header = 'gpu {}: {}%, freeMEM {}{}{}/{} MiB'.format(id,
+                                                             int(100 *
+                                                                 stats['gpu_util']),
+                                                             color_in,
+                                                             stats['mem_free'],
+                                                             color_out,
+                                                             stats['mem_total'])
+
+        # print header
+        out_message += header + "\n"
+
+        # Threads in the corresponding column
+        for proc in stats['proc']:
+            line = '{} - {} MiB'.format(proc['user'], proc['mem'])
+            out_message += line + "\n"
+            if verbose:
+                out_message += proc['command'] + "\n\n"
+
+        length = len(header)
+        out_message += '-' * length + "\n"
+    print(out_message)
+    return out_message
